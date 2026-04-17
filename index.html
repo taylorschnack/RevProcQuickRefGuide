@@ -8694,14 +8694,6 @@ function renderTable(changes, q) {
             <td class="col-irc">${ircTags}</td>
             <td class="col-481">${badge481(c.adj481, c.adj481Label)}</td>
             <td class="col-audit">${auditBadge}</td>
-
-    grpChanges.forEach(c => {
-      const ircTags = c.irc.map(x => `<span class="irc-tag">${escHtml(x)}</span>`).join('');
-      const auditBadge = c.auditProtection ? '<span class="badge-yes">Yes</span>' : '<span class="badge-no">No</span>';
-      const waivedBadge = c.hasWaived ? '<span class="badge-yes">Yes</span>' : '<span class="badge-none">No</span>';
-      const smallBadge = c.smallTaxpayer ? '<span class="badge-yes">Yes</span>' : '<span class="badge-none">No</span>';
-
-        html += `
             <td class="col-waived">${waivedBadge}</td>
             <td class="col-small">${smallBadge}</td>
             <td class="col-chevron" id="chev-${c.dcn}">&#9660;</td>
