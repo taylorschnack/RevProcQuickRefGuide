@@ -30,7 +30,7 @@
 
   body {
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
-    font-size: 13px;
+    font-size: 14px;
     color: var(--text);
     background: var(--gray-100);
     line-height: 1.5;
@@ -159,7 +159,7 @@
   .changes-table thead th {
     background: var(--navy-light);
     color: rgba(255,255,255,.85);
-    font-size: 10px;
+    font-size: 11px;
     font-weight: 600;
     letter-spacing: .4px;
     text-transform: uppercase;
@@ -183,7 +183,7 @@
   .changes-table td {
     padding: 8px 12px;
     vertical-align: top;
-    font-size: 12px;
+    font-size: 13px;
     border-right: 1px solid var(--border);
   }
   .changes-table td:last-child { border-right: none; }
@@ -218,7 +218,7 @@
   }
   .badge-no {
     display: inline-block; font-size: 10px; padding: 2px 7px; border-radius: 3px;
-    background: var(--red-bg); color: var(--red); font-weight: 600;
+    background: var(--gray-200); color: var(--gray-600); font-weight: 600;
   }
   .irc-tag {
     display: inline-block; font-size: 10px; padding: 1px 6px; margin: 1px 2px 1px 0;
@@ -273,6 +273,44 @@
   /* Highlight match */
   mark { background: #fef08a; color: inherit; border-radius: 2px; padding: 0 1px; }
 
+  /* ── Back to top ── */
+  #back-to-top {
+    position: fixed; bottom: 24px; right: 24px; z-index: 150;
+    background: var(--navy); color: #fff;
+    border: none; border-radius: 50%; width: 40px; height: 40px;
+    font-size: 18px; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,.25);
+    display: flex; align-items: center; justify-content: center;
+    opacity: 0; pointer-events: none; transition: opacity .2s;
+  }
+  #back-to-top.visible { opacity: 1; pointer-events: auto; }
+  #back-to-top:hover { background: var(--navy-light); }
+
+  /* ── Sortable headers ── */
+  .changes-table thead th.sortable { cursor: pointer; user-select: none; }
+  .changes-table thead th.sortable:hover { background: #2d4070; }
+  .changes-table thead th .sort-icon { margin-left: 4px; opacity: .5; font-style: normal; }
+  .changes-table thead th.sort-asc .sort-icon,
+  .changes-table thead th.sort-desc .sort-icon { opacity: 1; }
+
+  /* ── Clear filters button ── */
+  .btn-clear {
+    background: none; border: 1px solid var(--border); border-radius: 5px;
+    padding: 5px 12px; font-size: 12px; color: var(--gray-600);
+    cursor: pointer; white-space: nowrap; transition: background .1s, color .1s;
+  }
+  .btn-clear:hover { background: var(--gray-200); color: var(--text); }
+
+  /* ── Expand/collapse all ── */
+  .btn-expand {
+    background: none; border: 1px solid var(--border); border-radius: 5px;
+    padding: 5px 12px; font-size: 12px; color: var(--gray-600);
+    cursor: pointer; white-space: nowrap; transition: background .1s, color .1s;
+  }
+  .btn-expand:hover { background: var(--gray-200); color: var(--text); }
+
+  /* ── Section jump ── */
+  #section-jump { max-width: 200px; }
+
   @media (max-width: 900px) {
     .detail-panel { grid-template-columns: 1fr 1fr; }
     .col-waived, .col-small { display: none; }
@@ -286,22 +324,7 @@
 </head>
 <body>
 
-<!-- Load Overlay -->
-<div id="load-overlay" class="hidden">
-  <div class="load-card" id="load-card-picker">
-    <div class="spinner" id="load-spinner" style="display:none"></div>
-    <h2>Rev. Proc. 2025-23 Reference</h2>
-    <p>Open <strong>rev_proc_2025_23_enhanced.json</strong> to load the data.<br>
-    If this file is in the same folder, click Auto-Load first.</p>
-    <button class="file-btn" onclick="tryAutoLoad()">Auto-Load</button>
-    &nbsp;
-    <label class="file-btn" style="background:#4b5563">
-      Browse File
-      <input type="file" id="file-input" accept=".json" onchange="loadFromFile(event)">
-    </label>
-    <p class="hint">Or save this HTML in the same folder as the .json file and click Auto-Load.</p>
-  </div>
-</div>
+<button id="back-to-top" title="Back to top" onclick="window.scrollTo({top:0,behavior:'smooth'})">&#8679;</button>
 
 <header>
   <div>
@@ -320,9 +343,15 @@
     <option value="cutoff">Cut-off Basis</option>
     <option value="none">None / N/A</option>
   </select>
+  <select id="section-jump" onchange="jumpToSection(this.value)">
+    <option value="">Jump to Section...</option>
+  </select>
   <div class="divider"></div>
   <label><input type="checkbox" id="filter-waived" onchange="applyFilters()"> Eligibility Rules Waived</label>
   <label><input type="checkbox" id="filter-small" onchange="applyFilters()"> Small Taxpayer Reduced Filing</label>
+  <div class="divider"></div>
+  <button class="btn-expand" id="expand-all-btn" onclick="toggleExpandAll()">Expand All</button>
+  <button class="btn-clear" onclick="clearFilters()">Clear Filters</button>
   <span class="count" id="result-count"></span>
 </div>
 
@@ -8333,40 +8362,22 @@ const __INLINE_DATA__ = {
 let DATA = null;
 let allChanges = []; // flat array, sorted by sectionNumber
 let allIrcSections = new Set();
+let sortCol = null;   // 'dcn' | 'section' | 'title' | '481' | 'audit'
+let sortDir = 'asc';
+let allExpanded = false;
 
 // ── Bootstrap ───────────────────────────────────────────────────────────────
-window.addEventListener("DOMContentLoaded", () => { DATA = __INLINE_DATA__; bootstrap(); });
-
-function tryAutoLoad() {
-  document.getElementById('load-spinner').style.display = 'block';
-  // Re-attempt fetch (user may have just placed file)
-  fetch('./rev_proc_2025_23_enhanced.json')
-    .then(r => { if (!r.ok) throw new Error(); return r.json(); })
-    .then(json => { DATA = json; bootstrap(); })
-    .catch(() => {
-      document.getElementById('load-spinner').style.display = 'none';
-      alert('Auto-load failed. This HTML must be served via a local server, or use Browse File to manually select rev_proc_2025_23_enhanced.json.');
-    });
-}
-
-function loadFromFile(evt) {
-  const file = evt.target.files[0];
-  if (!file) return;
-  const reader = new FileReader();
-  reader.onload = e => {
-    try {
-      DATA = JSON.parse(e.target.result);
-      bootstrap();
-    } catch {
-      alert('Failed to parse JSON. Make sure you selected the correct file.');
-    }
-  };
-  reader.readAsText(file);
-}
+window.addEventListener("DOMContentLoaded", () => {
+  DATA = __INLINE_DATA__;
+  bootstrap();
+  // Back-to-top visibility
+  window.addEventListener('scroll', () => {
+    document.getElementById('back-to-top').classList.toggle('visible', window.scrollY > 400);
+  });
+});
 
 // ── Build data ───────────────────────────────────────────────────────────────
 function bootstrap() {
-  document.getElementById('load-overlay').classList.add('hidden');
 
   const changes = DATA.changes || {};
   const sections = DATA.sections || {};
@@ -8448,8 +8459,83 @@ function bootstrap() {
     ircSelect.appendChild(opt);
   });
 
+  // Populate section jump dropdown
+  const jumpSelect = document.getElementById('section-jump');
+  Object.entries(DATA.sections || {}).sort((a,b) => Number(a[0]) - Number(b[0])).forEach(([k, v]) => {
+    const opt = document.createElement('option');
+    opt.value = `section-group-${k}`;
+    opt.textContent = `§${k} — ${v.title}`;
+    jumpSelect.appendChild(opt);
+  });
+
   document.getElementById('header-count').textContent = `${allChanges.length} Changes`;
   applyFilters();
+}
+
+// ── Clear filters ────────────────────────────────────────────────────────────
+function clearFilters() {
+  document.getElementById('search').value = '';
+  document.getElementById('filter-irc').value = '';
+  document.getElementById('filter-481').value = '';
+  document.getElementById('filter-waived').checked = false;
+  document.getElementById('filter-small').checked = false;
+  document.getElementById('section-jump').value = '';
+  sortCol = null; sortDir = 'asc';
+  applyFilters();
+}
+
+// ── Section jump ─────────────────────────────────────────────────────────────
+function jumpToSection(id) {
+  if (!id) return;
+  const el = document.getElementById(id);
+  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  // Reset dropdown display after navigation
+  setTimeout(() => { document.getElementById('section-jump').value = ''; }, 600);
+}
+
+// ── Expand / collapse all ────────────────────────────────────────────────────
+function toggleExpandAll() {
+  allExpanded = !allExpanded;
+  document.getElementById('expand-all-btn').textContent = allExpanded ? 'Collapse All' : 'Expand All';
+  allChanges.forEach(c => {
+    const row = document.getElementById('detail-' + c.dcn);
+    const mainRow = document.getElementById('row-' + c.dcn);
+    const chev = document.getElementById('chev-' + c.dcn);
+    if (!row) return;
+    row.classList.toggle('hidden', !allExpanded);
+    if (mainRow) mainRow.classList.toggle('expanded', allExpanded);
+    if (chev) chev.innerHTML = allExpanded ? '&#9650;' : '&#9660;';
+  });
+}
+
+// ── Column sort ──────────────────────────────────────────────────────────────
+function setSort(col) {
+  if (sortCol === col) {
+    sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+  } else {
+    sortCol = col;
+    sortDir = 'asc';
+  }
+  applyFilters();
+}
+
+function sortChanges(arr) {
+  if (!sortCol) return arr;
+  return [...arr].sort((a, b) => {
+    let av, bv;
+    if (sortCol === 'dcn')     { av = Number(a.dcn); bv = Number(b.dcn); }
+    else if (sortCol === 'section') {
+      const [am, an] = a.section.split('.').map(Number);
+      const [bm, bn] = b.section.split('.').map(Number);
+      av = am * 1000 + (an || 0); bv = bm * 1000 + (bn || 0);
+    }
+    else if (sortCol === 'title')  { av = a.title.toLowerCase(); bv = b.title.toLowerCase(); }
+    else if (sortCol === '481')    { av = a.adj481; bv = b.adj481; }
+    else if (sortCol === 'audit')  { av = a.auditProtection ? 0 : 1; bv = b.auditProtection ? 0 : 1; }
+    if (av < bv) return sortDir === 'asc' ? -1 : 1;
+    if (av > bv) return sortDir === 'asc' ? 1 : -1;
+    return 0;
+  });
 }
 
 // ── Filters ──────────────────────────────────────────────────────────────────
@@ -8480,7 +8566,7 @@ function applyFilters() {
   });
 
   document.getElementById('result-count').textContent = `${visible.length} of ${allChanges.length} shown`;
-  renderTable(visible, q);
+  renderTable(sortChanges(visible), q);
 }
 
 // ── Render ───────────────────────────────────────────────────────────────────
@@ -8526,44 +8612,81 @@ function renderTable(changes, q) {
     secLookup[k] = { title: v.title, irc: v.ircSections || (v.ircSection ? [v.ircSection] : []) };
   });
 
+  // When sorting is active, flatten into one group; otherwise group by section
+  const isSorted = !!sortCol;
   let html = '';
-  const groupKeys = Object.keys(groups).sort((a, b) => Number(a) - Number(b));
 
-  groupKeys.forEach(gk => {
-    const grpChanges = groups[gk];
-    const sec = secLookup[gk] || { title: `Section ${gk}`, irc: [] };
-    const ircBadges = sec.irc.map(x => `<span class="irc-badge">${escHtml(x)}</span>`).join(' ');
+  function sortIcon(col) {
+    if (sortCol !== col) return '<i class="sort-icon">⇅</i>';
+    return sortDir === 'asc' ? '<i class="sort-icon">↑</i>' : '<i class="sort-icon">↓</i>';
+  }
 
-    html += `
-    <div class="section-group">
+  function tableHead() {
+    return `<table class="changes-table">
+      <thead>
+        <tr>
+          <th class="col-dcn sortable${sortCol==='dcn'?' sort-'+sortDir:''}" onclick="setSort('dcn')">DCN${sortIcon('dcn')}</th>
+          <th class="col-section sortable${sortCol==='section'?' sort-'+sortDir:''}" onclick="setSort('section')">Section${sortIcon('section')}</th>
+          <th class="col-title sortable${sortCol==='title'?' sort-'+sortDir:''}" onclick="setSort('title')">Method Change${sortIcon('title')}</th>
+          <th class="col-irc">IRC Sections</th>
+          <th class="col-481 sortable${sortCol==='481'?' sort-'+sortDir:''}" onclick="setSort('481')">481(a) Treatment${sortIcon('481')}</th>
+          <th class="col-audit sortable${sortCol==='audit'?' sort-'+sortDir:''}" onclick="setSort('audit')">Audit Prot.${sortIcon('audit')}</th>
+          <th class="col-waived">Rules Waived</th>
+          <th class="col-small">Small TP</th>
+          <th class="col-chevron"></th>
+        </tr>
+      </thead>
+      <tbody>`;
+  }
+
+  if (isSorted) {
+    // Single flat table when sorted
+    html += `<div class="section-group">${tableHead()}`;
+    changes.forEach(c => {
+      const ircTags = c.irc.map(x => `<span class="irc-tag">${escHtml(x)}</span>`).join('');
+      const auditBadge = c.auditProtection ? '<span class="badge-yes">Yes</span>' : '<span class="badge-no">No</span>';
+      const waivedBadge = c.hasWaived ? '<span class="badge-yes">Yes</span>' : '<span class="badge-none">No</span>';
+      const smallBadge = c.smallTaxpayer ? '<span class="badge-yes">Yes</span>' : '<span class="badge-none">No</span>';
+      html += `
+        <tr onclick="toggleDetail('detail-${c.dcn}')" id="row-${c.dcn}">
+          <td class="col-dcn">${hl(c.dcn, q)}</td>
+          <td class="col-section">${hl(c.section, q)}</td>
+          <td class="col-title">${hl(c.title, q)}</td>
+          <td class="col-irc">${ircTags}</td>
+          <td class="col-481">${badge481(c.adj481, c.adj481Label)}</td>
+          <td class="col-audit">${auditBadge}</td>
+          <td class="col-waived">${waivedBadge}</td>
+          <td class="col-small">${smallBadge}</td>
+          <td class="col-chevron" id="chev-${c.dcn}">&#9660;</td>
+        </tr>
+        <tr class="detail-row hidden" id="detail-${c.dcn}">
+          <td colspan="9">${buildDetail(c)}</td>
+        </tr>`;
+    });
+    html += `</tbody></table></div>`;
+  } else {
+    const groupKeys = Object.keys(groups).sort((a, b) => Number(a) - Number(b));
+    groupKeys.forEach(gk => {
+      const grpChanges = groups[gk];
+      const sec = secLookup[gk] || { title: `Section ${gk}`, irc: [] };
+      const ircBadges = sec.irc.map(x => `<span class="irc-badge">${escHtml(x)}</span>`).join(' ');
+
+      html += `
+    <div class="section-group" id="section-group-${gk}">
       <div class="section-header">
         <span>${escHtml(sec.title)}</span>
         ${ircBadges}
         <span class="section-count">${grpChanges.length} change${grpChanges.length !== 1 ? 's' : ''}</span>
       </div>
-      <table class="changes-table">
-        <thead>
-          <tr>
-            <th class="col-dcn">DCN</th>
-            <th class="col-section">Section</th>
-            <th class="col-title">Method Change</th>
-            <th class="col-irc">IRC Sections</th>
-            <th class="col-481">481(a) Treatment</th>
-            <th class="col-audit">Audit Prot.</th>
-            <th class="col-waived">Rules Waived</th>
-            <th class="col-small">Small TP</th>
-            <th class="col-chevron"></th>
-          </tr>
-        </thead>
-        <tbody>`;
+      ${tableHead()}`;
 
-    grpChanges.forEach(c => {
-      const ircTags = c.irc.map(x => `<span class="irc-tag">${escHtml(x)}</span>`).join('');
-      const auditBadge = c.auditProtection ? '<span class="badge-yes">Yes</span>' : '<span class="badge-no">No</span>';
-      const waivedBadge = c.hasWaived ? '<span class="badge-yes">Yes</span>' : '<span class="badge-none">No</span>';
-      const smallBadge = c.smallTaxpayer ? '<span class="badge-yes">Yes</span>' : '<span class="badge-none">No</span>';
+      grpChanges.forEach(c => {
+        const ircTags = c.irc.map(x => `<span class="irc-tag">${escHtml(x)}</span>`).join('');
+        const auditBadge = c.auditProtection ? '<span class="badge-yes">Yes</span>' : '<span class="badge-no">No</span>';
+        const waivedBadge = c.hasWaived ? '<span class="badge-yes">Yes</span>' : '<span class="badge-none">No</span>';
+        const smallBadge = c.smallTaxpayer ? '<span class="badge-yes">Yes</span>' : '<span class="badge-none">No</span>';
 
-      html += `
+        html += `
           <tr onclick="toggleDetail('detail-${c.dcn}')" id="row-${c.dcn}">
             <td class="col-dcn">${hl(c.dcn, q)}</td>
             <td class="col-section">${hl(c.section, q)}</td>
@@ -8571,22 +8694,26 @@ function renderTable(changes, q) {
             <td class="col-irc">${ircTags}</td>
             <td class="col-481">${badge481(c.adj481, c.adj481Label)}</td>
             <td class="col-audit">${auditBadge}</td>
+
+    grpChanges.forEach(c => {
+      const ircTags = c.irc.map(x => `<span class="irc-tag">${escHtml(x)}</span>`).join('');
+      const auditBadge = c.auditProtection ? '<span class="badge-yes">Yes</span>' : '<span class="badge-no">No</span>';
+      const waivedBadge = c.hasWaived ? '<span class="badge-yes">Yes</span>' : '<span class="badge-none">No</span>';
+      const smallBadge = c.smallTaxpayer ? '<span class="badge-yes">Yes</span>' : '<span class="badge-none">No</span>';
+
+        html += `
             <td class="col-waived">${waivedBadge}</td>
             <td class="col-small">${smallBadge}</td>
             <td class="col-chevron" id="chev-${c.dcn}">&#9660;</td>
           </tr>
           <tr class="detail-row hidden" id="detail-${c.dcn}">
-            <td colspan="9">
-              ${buildDetail(c)}
-            </td>
+            <td colspan="9">${buildDetail(c)}</td>
           </tr>`;
-    });
+      });
 
-    html += `
-        </tbody>
-      </table>
-    </div>`;
-  });
+      html += `</tbody></table></div>`;
+    });
+  }
 
   main.innerHTML = html;
 }
@@ -8615,22 +8742,34 @@ function buildDetail(c) {
 
   const auditNote = c.auditProtectionNotes ? `<br><span style="color:#6b7280;font-size:11px">${escHtml(c.auditProtectionNotes)}</span>` : '';
 
+  const phoneRaw = c.contact.phone || '';
+  const phoneLink = phoneRaw
+    ? `<a href="tel:${phoneRaw.replace(/[^\d+]/g,'')}" style="color:var(--accent)">${escHtml(phoneRaw)}</a>`
+    : '';
   const contactHtml = c.contact.name
-    ? `<span class="contact-name">${escHtml(c.contact.name)}</span><br><span class="contact-line">${escHtml(c.contact.phone || '')} &bull; ${escHtml(c.contact.office || '')}</span>`
+    ? `<span class="contact-name">${escHtml(c.contact.name)}</span><br><span class="contact-line">${phoneLink}${phoneLink && c.contact.office ? ' &bull; ' : ''}${escHtml(c.contact.office || '')}</span>`
     : '<span style="color:#9ca3af">Not specified</span>';
 
   const smallNote = c.smallTaxpayer && c.smallTaxpayerDef
     ? `<br><span style="color:#6b7280;font-size:11px">${escHtml(c.smallTaxpayerDef)}</span>`
     : '';
 
+  const refHtml = c.revProcRef
+    ? `<span style="font-family:'Courier New',monospace;font-size:12px">${escHtml(c.revProcRef)}</span>`
+    : '<span style="color:#9ca3af">—</span>';
+
   return `<div class="detail-panel">
-    <div class="detail-section">
+    <div class="detail-section detail-full" style="border-bottom:1px solid var(--border);padding-bottom:10px;margin-bottom:2px">
       <h4>Applicability</h4>
       <p>${escHtml(c.applicability)}</p>
     </div>
     <div class="detail-section">
       <h4>Description</h4>
       <p>${escHtml(c.description)}</p>
+    </div>
+    <div class="detail-section">
+      <h4>Rev. Proc. Reference</h4>
+      <p>${refHtml}</p>
     </div>
     <div class="detail-section">
       <h4>IRS Contact</h4>
